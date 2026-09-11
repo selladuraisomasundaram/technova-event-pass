@@ -8,7 +8,7 @@ export default async function handler(req, res) {
   const query = req.method === "POST" ? req.body.query : req.query.query;
 
   if (!query || !query.trim()) {
-    return res.status(400).json({ message: "Search query (Email, Mobile, or Name) is required" });
+    return res.status(400).json({ message: "Search query (Email Address or Mobile Number) is required" });
   }
 
   const searchTerm = query.trim();
@@ -39,17 +39,14 @@ export default async function handler(req, res) {
       const row = rows[i];
       const email = normalizeText(row[colIdx.email]);
       const mobile = cleanSearchTerm(row[colIdx.mobile]);
-      const name = normalizeText(row[colIdx.fullName]);
-      const cleanName = cleanSearchTerm(row[colIdx.fullName]);
       const existingId = normalizeText(row[colIdx.uniqueId]);
 
-      // Match against Email, Mobile Number, Full Name, or existing Unique Pass ID
-      if (
-        (email && (email === normalizedSearch || email.includes(normalizedSearch))) ||
-        (mobile && (mobile === cleanedSearch || mobile.endsWith(cleanedSearch) || cleanedSearch.endsWith(mobile))) ||
-        (name && (name === normalizedSearch || cleanName === cleanedSearch || name.includes(normalizedSearch))) ||
-        (existingId && existingId === normalizedSearch)
-      ) {
+      // STRICT MATCHING: Match ONLY by Email Address, Mobile Number, or existing Unique Pass ID
+      const isEmailMatch = email && (email === normalizedSearch || email.includes(normalizedSearch));
+      const isMobileMatch = mobile && (mobile === cleanedSearch || mobile.endsWith(cleanedSearch) || cleanedSearch.endsWith(mobile));
+      const isIdMatch = existingId && existingId === normalizedSearch;
+
+      if (isEmailMatch || isMobileMatch || isIdMatch) {
         matchRow = row;
         matchRowIndex = i + 1;
         break;
@@ -58,7 +55,7 @@ export default async function handler(req, res) {
 
     if (!matchRow) {
       return res.status(404).json({
-        message: `No pre-registration record found for "${searchTerm}". Please check your email, phone, or register name.`,
+        message: `No record found matching "${searchTerm}". Please check your email address or 10-digit mobile number.`,
       });
     }
 
@@ -84,7 +81,7 @@ export default async function handler(req, res) {
       startupInterest: matchRow[colIdx.startupInterest] || "",
       uniqueId: uniqueId,
       isPassIssued: isPassIssued,
-      photoUrl: matchRow[colIdx.photoUrl] || "",
+      photoUrl: photoUrl,
       status: matchRow[colIdx.status] || "Pending",
     };
 

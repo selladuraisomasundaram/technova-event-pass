@@ -217,7 +217,7 @@ export default function ClaimPass() {
 
       <main className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-red-50 py-10 px-4 flex flex-col items-center justify-center">
         <div className="max-w-xl w-full bg-white rounded-3xl shadow-2xl overflow-hidden border border-orange-100/60">
-          
+
           {/* Header */}
           <div className="bg-gradient-to-r from-orange-600 via-orange-500 to-red-600 p-8 text-white text-center relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl pointer-events-none"></div>
