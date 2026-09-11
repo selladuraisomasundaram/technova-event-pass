@@ -1,4 +1,4 @@
-import { google } from "googleapis";
+import { getGoogleSheetsClient, resolveColumnIndices, normalizeText } from "@/utils/sheetHelpers";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -11,24 +11,8 @@ export default async function handler(req, res) {
     return res.status(400).json({ message: "Participant ID is required" });
   }
 
-  if (!process.env.GOOGLE_CLIENT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY || !process.env.SPREADSHEET_ID) {
-    return res.status(500).json({ message: "Server configuration error: Missing API credentials." });
-  }
-
   try {
-    const auth = new google.auth.GoogleAuth({
-      credentials: {
-        client_email: process.env.GOOGLE_CLIENT_EMAIL,
-        private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-      },
-      scopes: [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive.readonly",
-      ],
-    });
-
-    const sheets = google.sheets({ version: "v4", auth });
-    const spreadsheetId = process.env.SPREADSHEET_ID;
+    const { sheets, spreadsheetId } = getGoogleSheetsClient();
 
     const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
     const sheetName = spreadsheet.data.sheets[0].properties.title;
@@ -39,44 +23,40 @@ export default async function handler(req, res) {
     });
 
     const rows = response.data.values;
-    if (!rows || rows.length === 0) {
+    if (!rows || rows.length <= 1) {
       return res.status(404).json({ message: "Database is empty." });
     }
 
-    const headers = rows[0].map(h => h.toString().toLowerCase().trim());
-    const idIndex = headers.findIndex(h => h.includes("unique id") || h === "id");
-    const nameIndex = headers.findIndex(h => h.includes("name") || h.includes("full name"));
-    const emailIndex = headers.findIndex(h => h.includes("email") || h.includes("email address"));
-    const photoIndex = headers.findIndex(h => 
-      (h.includes("photo") || h.includes("image") || h.includes("picture") || (h.includes("upload") && !h.includes("payment"))) &&
-      !h.includes("screenshot") &&
-      !h.includes("receipt") &&
-      !h.includes("payment")
-    );
-    const deptIndex = headers.findIndex(h => h.includes("dept") || h.includes("department"));
-
-    if (idIndex === -1) {
-      return res.status(500).json({ message: "Spreadsheet misconfiguration: Unique ID column not found." });
-    }
+    const colIdx = resolveColumnIndices(rows[0]);
+    const targetIdNorm = normalizeText(id);
 
     let participant = null;
 
-    // Search for row containing the ID (skipping header)
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
-      if (row[idIndex] && row[idIndex].toString().trim() === id.toString().trim()) {
+      const uniqueId = normalizeText(row[colIdx.uniqueId]);
+      const email = normalizeText(row[colIdx.email]);
+      const mobile = normalizeText(row[colIdx.mobile]);
+
+      if (uniqueId === targetIdNorm || email === targetIdNorm || mobile === targetIdNorm) {
         participant = {
-          name: nameIndex !== -1 ? row[nameIndex] || "" : "",
-          email: emailIndex !== -1 ? row[emailIndex] || "" : "",
-          photoUrl: photoIndex !== -1 ? row[photoIndex] || "" : "",
-          department: deptIndex !== -1 ? row[deptIndex] || "" : "",
+          uniqueId: row[colIdx.uniqueId] || id,
+          name: row[colIdx.fullName] || "Participant",
+          email: row[colIdx.email] || "",
+          mobile: row[colIdx.mobile] || "",
+          institution: row[colIdx.institution] || "Paavai Engineering College",
+          category: row[colIdx.category] || "Student",
+          department: row[colIdx.department] || "",
+          yearOfStudy: row[colIdx.yearOfStudy] || "",
+          photoUrl: row[colIdx.photoUrl] || "",
+          status: row[colIdx.status] || "Pending",
         };
         break;
       }
     }
 
     if (!participant) {
-      return res.status(404).json({ message: "Participant not found." });
+      return res.status(404).json({ message: `Pass ID "${id}" not found.` });
     }
 
     return res.status(200).json(participant);

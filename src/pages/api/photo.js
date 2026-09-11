@@ -4,6 +4,11 @@ import axios from "axios";
 const getFileIdFromUrl = (urlOrId) => {
   if (!urlOrId) return null;
   const str = urlOrId.toString().trim();
+
+  // If it's a data URI, handle directly in main handler
+  if (str.startsWith("data:image/")) {
+    return "DATA_URI";
+  }
   
   // If it looks like a clean Google Drive file ID already
   if (/^[a-zA-Z0-9_-]{25,}$/.test(str)) {
@@ -36,6 +41,18 @@ export default async function handler(req, res) {
     return res.status(400).json({ message: "Photo URL is required" });
   }
 
+  // Support Base64 Data URIs
+  if (url.startsWith("data:image/")) {
+    const matches = url.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+    if (matches && matches.length === 3) {
+      const mimeType = matches[1];
+      const buffer = Buffer.from(matches[2], "base64");
+      res.setHeader("Content-Type", mimeType);
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      return res.status(200).send(buffer);
+    }
+  }
+
   const fileId = getFileIdFromUrl(url);
 
   if (!fileId) {
@@ -44,7 +61,7 @@ export default async function handler(req, res) {
 
   let publicErrorDetails = null;
 
-  // 1. Try public direct fetch first (no GCP Drive API activation required)
+  // 1. Try public direct fetch first
   try {
     const publicUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
     const response = await axios({
@@ -57,11 +74,8 @@ export default async function handler(req, res) {
     });
 
     const contentType = response.headers["content-type"] || "";
-    
-    // If the response is HTML, it means Google Drive redirected to the login page (file is private).
-    // Throw an error to trigger the catch block and fall back to the authenticated service account.
     if (contentType.includes("text/html")) {
-      throw new Error("Google Drive redirected to the login page. The file is private.");
+      throw new Error("Google Drive redirected to login page.");
     }
     
     let finalContentType = contentType;
@@ -70,19 +84,17 @@ export default async function handler(req, res) {
     }
     
     res.setHeader("Content-Type", finalContentType);
-    res.setHeader("Cache-Control", "public, max-age=86400, must-revalidate");
+    res.setHeader("Cache-Control", "public, max-age=86400");
     res.setHeader("Access-Control-Allow-Origin", "*");
 
     response.data.pipe(res);
     return;
   } catch (publicError) {
     publicErrorDetails = publicError.message;
-    console.error(`[Proxy Debug] Public direct fetch failed for file ID ${fileId}:`, publicError.message);
   }
 
-  // 2. Fallback to authenticated Google Drive API (requires Drive API enabled in GCP console)
+  // 2. Fallback to authenticated Google Drive API
   if (!process.env.GOOGLE_CLIENT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY) {
-    console.error("[Proxy Debug] Authenticated fallback skipped: Missing credentials in .env");
     return res.status(500).json({ 
       message: "Server configuration error: Missing API credentials.",
       publicError: publicErrorDetails
@@ -100,42 +112,27 @@ export default async function handler(req, res) {
 
     const drive = google.drive({ version: "v3", auth });
 
-    // Fetch file metadata
-    let metadata;
-    try {
-      metadata = await drive.files.get({
-        fileId,
-        fields: "mimeType, name",
-      });
-    } catch (metaError) {
-      console.error(`[Proxy Debug] Authenticated metadata fetch failed for file ID ${fileId}:`, metaError.message);
-      return res.status(404).json({ 
-        message: "File not found or access denied.", 
-        error: metaError.message,
-        publicError: publicErrorDetails,
-        details: "Please ensure the Google Drive folder containing the uploaded photos is shared with the service account: " + process.env.GOOGLE_CLIENT_EMAIL
-      });
-    }
+    const metadata = await drive.files.get({
+      fileId,
+      fields: "mimeType, name",
+    });
 
     const mimeType = metadata.data.mimeType || "image/jpeg";
-
-    // Fetch the file media stream
     const fileResponse = await drive.files.get(
       { fileId, alt: "media" },
       { responseType: "stream" }
     );
 
     res.setHeader("Content-Type", mimeType);
-    res.setHeader("Cache-Control", "public, max-age=86400, must-revalidate");
+    res.setHeader("Cache-Control", "public, max-age=86400");
     res.setHeader("Access-Control-Allow-Origin", "*");
 
     fileResponse.data.pipe(res);
   } catch (error) {
-    console.error("[Proxy Debug] Authenticated fallback failed:", error.message);
+    console.error("[Proxy Debug] Drive fallback failed:", error.message);
     return res.status(500).json({ 
-      message: "Proxy error fetching image via authenticated fallback", 
-      error: error.message,
-      publicError: publicErrorDetails
+      message: "Error fetching image", 
+      error: error.message
     });
   }
 }
