@@ -2,8 +2,8 @@ import nodemailer from 'nodemailer';
 
 // 1. Collect Gmail Accounts
 const gmailAccounts = [
-  { user: process.env.GMAIL_USER_1, pass: process.env.GMAIL_PASS_1 },
-  { user: process.env.GMAIL_USER_2, pass: process.env.GMAIL_PASS_2 },
+  { user: process.env.GMAIL_USER_1, pass: (process.env.GMAIL_PASS_1 || "").replace(/\s+/g, "") },
+  { user: process.env.GMAIL_USER_2, pass: (process.env.GMAIL_PASS_2 || "").replace(/\s+/g, "") },
 ].filter(acc => acc.user && acc.pass);
 
 // 2. Collect Mailjet Accounts
