@@ -67,11 +67,13 @@ export const resolveColumnIndices = (headers) => {
     yearOfStudy: findIdx(["year of study", "year"]) !== -1 ? findIdx(["year of study", "year"]) : 7,
     startupInterest: findIdx(["interested in interacting", "startup"]) !== -1 ? findIdx(["interested in interacting", "startup"]) : 8,
 
-    // Generated / Updated Columns (Default to Columns J, K, L, M, N)
+    // Generated / Updated Columns (Default to Columns J, K, L, M, N, O, P)
     uniqueId: findIdx(["unique pass id", "unique id", "pass id"]) !== -1 ? findIdx(["unique pass id", "unique id", "pass id"]) : 9,
     passIssued: findIdx(["pass issued", "issued"]) !== -1 ? findIdx(["pass issued", "issued"]) : 10,
     photoUrl: findIdx(["photo url", "photo", "image"]) !== -1 ? findIdx(["photo url", "photo", "image"]) : 11,
     status: findIdx(["status", "check-in status"]) !== -1 ? findIdx(["status", "check-in status"]) : 12,
     checkInTimestamp: findIdx(["check-in timestamp", "scan time", "timestamp checkin"]) !== -1 ? findIdx(["check-in timestamp", "scan time", "timestamp checkin"]) : 13,
+    invitationSent: findIdx(["invitation sent", "mail sent", "email sent"]) !== -1 ? findIdx(["invitation sent", "mail sent", "email sent"]) : 14,
+    invitationTimestamp: findIdx(["invitation timestamp", "sent timestamp", "mail timestamp"]) !== -1 ? findIdx(["invitation timestamp", "sent timestamp", "mail timestamp"]) : 15,
   };
 };

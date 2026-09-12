@@ -44,10 +44,20 @@ const providers = [
   },
 ];
 
-export async function sendSmartEmail({ to, subject, html, text }) {
+export async function sendSmartEmail({ to, subject, html, text, skipGmail = false }) {
   let lastError = null;
 
-  for (const provider of providers) {
+  const shouldSkipGmail = skipGmail || process.env.SKIP_GMAIL === 'true';
+
+  const activeProviders = shouldSkipGmail
+    ? providers.filter(p => !p.name.includes('Gmail'))
+    : providers;
+
+  if (activeProviders.length === 0) {
+    throw new Error('No email providers configured or active.');
+  }
+
+  for (const provider of activeProviders) {
     try {
       const transporter = nodemailer.createTransport(provider.transport);
       
@@ -72,5 +82,5 @@ export async function sendSmartEmail({ to, subject, html, text }) {
     }
   }
 
-  throw new Error(`All email providers failed. Last error: ${lastError?.message}`);
+  throw new Error(`All active email providers failed. Last error: ${lastError?.message}`);
 }
