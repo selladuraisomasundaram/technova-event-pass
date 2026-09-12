@@ -10,7 +10,7 @@ export default function AdminSendMails() {
   const [stats, setStats] = useState({ total: 0, sent: 0, pending: 0 });
   const [loadingStats, setLoadingStats] = useState(false);
   const [skipGmail, setSkipGmail] = useState(true); // Default true since user personal accounts are exhausted
-  const [batchSize, setBatchSize] = useState(5);
+  const [batchSize, setBatchSize] = useState(2);
   const [isSending, setIsSending] = useState(false);
   const [logs, setLogs] = useState([]);
   const [batchMessage, setBatchMessage] = useState("");
@@ -57,22 +57,27 @@ export default function AdminSendMails() {
     stopSendingRef.current = false;
     setBatchMessage("Starting automated mail dispatch...");
 
-    let currentSent = stats.sent;
     let currentPending = stats.pending;
 
     while (!stopSendingRef.current && currentPending > 0) {
-      setBatchMessage(`Sending batch of ${batchSize} emails via ${skipGmail ? "Mailjet/Brevo" : "Gmail/Mailjet/Brevo"}...`);
+      setBatchMessage(`Sending batch of ${batchSize} email(s) via ${skipGmail ? "Mailjet" : "Gmail/Mailjet"}...`);
 
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 20000); // 20s timeout safeguard
+
         const res = await fetch("/api/sendBulkInvitations", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({
             adminPassword: "Pec@123",
             batchSize: Number(batchSize),
             skipGmail,
           }),
         });
+
+        clearTimeout(timeoutId);
 
         const data = await res.json();
 
@@ -94,19 +99,22 @@ export default function AdminSendMails() {
           if (data.stats) {
             setStats(data.stats);
             currentPending = data.stats.pending;
-            currentSent = data.stats.sent;
           }
         } else {
           setBatchMessage("No pending invitations left to send.");
           break;
         }
       } catch (err) {
-        setBatchMessage(`Network Error: ${err.message}`);
-        break;
+        if (err.name === "AbortError") {
+          setBatchMessage("Request timed out (20s). Retrying next batch...");
+        } else {
+          setBatchMessage(`Network Error: ${err.message}`);
+          break;
+        }
       }
 
-      // Small delay between batches to respect rate limits
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // 1.5 sec delay between batches
+      await new Promise((resolve) => setTimeout(resolve, 1500));
     }
 
     setIsSending(false);
@@ -201,9 +209,9 @@ export default function AdminSendMails() {
                   disabled={isSending}
                   style={styles.select}
                 >
+                  <option value={1}>1 Email per Batch (Fastest & Safest)</option>
+                  <option value={2}>2 Emails per Batch (Recommended)</option>
                   <option value={5}>5 Emails per Batch</option>
-                  <option value={10}>10 Emails per Batch</option>
-                  <option value={20}>20 Emails per Batch</option>
                 </select>
               </div>
 

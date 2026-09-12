@@ -56,13 +56,15 @@ export default async function handler(req, res) {
     }
 
     if (req.method === "POST") {
-      const { batchSize = 5, skipGmail = false, adminPassword } = req.body || {};
+      const { batchSize = 2, skipGmail = true, adminPassword } = req.body || {};
 
       if (adminPassword !== "Pec@123") {
         return res.status(401).json({ success: false, message: "Unauthorized. Invalid admin password." });
       }
 
-      const pendingParticipants = participants.filter((p) => !p.invitationSent).slice(0, Number(batchSize));
+      // Limit batch size to 5 max to prevent gateway timeouts
+      const safeBatchSize = Math.min(Math.max(1, Number(batchSize) || 2), 5);
+      const pendingParticipants = participants.filter((p) => !p.invitationSent).slice(0, safeBatchSize);
 
       if (pendingParticipants.length === 0) {
         return res.status(200).json({
@@ -73,10 +75,10 @@ export default async function handler(req, res) {
         });
       }
 
-      const results = [];
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://technova-event-pass.vercel.app";
 
-      for (const p of pendingParticipants) {
+      // Process batch concurrently with Promise.all
+      const sendPromises = pendingParticipants.map(async (p) => {
         const claimLink = `${appUrl}/claim-pass`;
         const htmlContent = `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px; background-color: #ffffff;">
@@ -111,39 +113,52 @@ export default async function handler(req, res) {
             skipGmail: Boolean(skipGmail),
           });
 
-          // Update Google Sheet Column O (invitationSent) & Column P (invitationTimestamp)
-          const colO = getColumnLetter(cols.invitationSent);
-          const colP = getColumnLetter(cols.invitationTimestamp);
-
-          await sheets.spreadsheets.values.update({
-            spreadsheetId,
-            range: `Sheet1!${colO}${p.rowIndex}:${colP}${p.rowIndex}`,
-            valueInputOption: "USER_ENTERED",
-            requestBody: {
-              values: [["TRUE", new Date().toISOString()]],
-            },
-          });
-
-          results.push({
+          return {
             rowIndex: p.rowIndex,
             email: p.email,
             fullName: p.fullName,
             status: "SUCCESS",
             provider: mailRes.provider,
-          });
+          };
         } catch (err) {
           console.error(`Failed to send invitation to ${p.email}:`, err.message);
-          results.push({
+          return {
             rowIndex: p.rowIndex,
             email: p.email,
             fullName: p.fullName,
             status: "FAILED",
             error: err.message,
+          };
+        }
+      });
+
+      const results = await Promise.all(sendPromises);
+
+      // Batch update Google Sheets for successful sends
+      const successfulSends = results.filter((r) => r.status === "SUCCESS");
+      if (successfulSends.length > 0) {
+        const colO = getColumnLetter(cols.invitationSent);
+        const colP = getColumnLetter(cols.invitationTimestamp);
+
+        const updateData = successfulSends.map((item) => ({
+          range: `Sheet1!${colO}${item.rowIndex}:${colP}${item.rowIndex}`,
+          values: [["TRUE", new Date().toISOString()]],
+        }));
+
+        try {
+          await sheets.spreadsheets.values.batchUpdate({
+            spreadsheetId,
+            requestBody: {
+              valueInputOption: "USER_ENTERED",
+              data: updateData,
+            },
           });
+        } catch (sheetErr) {
+          console.error("Google Sheets batchUpdate error:", sheetErr.message);
         }
       }
 
-      const newlySentCount = results.filter((r) => r.status === "SUCCESS").length;
+      const newlySentCount = successfulSends.length;
 
       return res.status(200).json({
         success: true,
